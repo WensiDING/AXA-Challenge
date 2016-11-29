@@ -1,10 +1,24 @@
-paths <- paste0('./rawdata/',all_assignment,sep='')
+setwd("~/Documents/AXA-Challenge")
+inputPath <- './rawdata/'
+paths <- list.files(inputPath)
+all_assignment <- unlist(strsplit(paths,'_'))[seq(1,length(paths)*2,2)]
+Encoding(all_assignment)<- "UTF-8"
+
+paths <- paste0(inputPath,all_assignment,sep='')
 paths <- paste0(paths,'_dataset.csv',sep='')
 length_ass <- length(all_assignment)
 
+pred_paths_v1 <- paste0('./pred_data_v1/',all_assignment,sep='')
+pred_paths_v1 <- paste0(pred_paths_v1,'_dataset.csv',sep='')
+  
+pred_paths_v2 <- paste0('./pred_data_v2/',all_assignment,sep='')
+pred_paths_v2 <- paste0(pred_paths_v2,'_dataset.csv',sep='')
+
+pred_paths_v3 <- paste0('./pred_data_v3/',all_assignment,sep='')
+pred_paths_v3 <- paste0(pred_paths_v3,'_dataset.csv',sep='')
+
 path_finaldata <- paste0('./finaldata/',all_assignment,sep='')
 path_finaldata <- paste0(path_finaldata,'_dataset.csv',sep='')
-
 
 path_data_v1 <- paste0('./data_v1/',all_assignment,sep='')
 path_data_v1 <- paste0(path_data_v1,'_dataset_v1.csv',sep='')
@@ -15,9 +29,14 @@ path_data_v2 <- paste0(path_data_v2,'_dataset_v2.csv',sep='')
 path_data_v3 <- paste0('./data_v3/',all_assignment,sep='')
 path_data_v3 <- paste0(path_data_v3,'_dataset_v3.csv',sep='')
 
+normalization_parameters <- data.frame(ASS_ASSIGNMENT = all_assignment, max1=NA,max2=NA,max3=NA,min1=NA,min2=NA,min3=NA)
+
+submission <- fread("./submission.txt",colClasses = c('character','character','NULL'))
+submission$mydate <- as.Date(submission$DATE)
+dates <- unique(submission$mydate)
 
 for (l in 1:length_ass){
-
+    
     tech_axa_data <- read.csv(paths[l]) 
     
     # dealing with na
@@ -32,15 +51,19 @@ for (l in 1:length_ass){
     #         }
     # }
     tech_axa_data$mydate <- as.Date(tech_axa_data$mydate)
-    tech_axa_data[is.na(tech_axa_data[,8]),8] <- 0
-    
+    tech_axa_data$DAY_WE_DS <- as.numeric(strftime(tech_axa_data$mydate,'%u'))
+    if(sum(is.na(tech_axa_data[,8]))!=0){
+    tech_axa_data[is.na(tech_axa_data[,8]) & (!(tech_axa_data$mydate %in% dates)) ,8] <- 0
+    }
+   
     # column for recording the recieved call numbers of the same hour seven days ago 
     # and of the same day seven days ago
-    day_summary <- aggregate(CSPL_RECEIVED_CALLS~mydate,data=tech_axa_data,FUN = sum)
+    
+    day_summary <- aggregate(CSPL_RECEIVED_CALLS~mydate,data=tech_axa_data[!(tech_axa_data$mydate %in% dates),],FUN = sum)
     tech_axa_data$samehour_sevendays <- NA
     tech_axa_data$sameday_sevendays <- NA
     for( i in 1:length(tech_axa_data[,1])){
-        if(sum(tech_axa_data$mydate==(tech_axa_data$mydate[i]-7))!=0){
+        if(sum(day_summary$mydate==(tech_axa_data$mydate[i]-7))!=0){
             row1 <- which((tech_axa_data$mydate==(tech_axa_data$mydate[i]-7)) & (tech_axa_data$hour_index==tech_axa_data$hour_index[i]))
             tech_axa_data$samehour_sevendays[i] <- tech_axa_data$CSPL_RECEIVED_CALLS[row1]
             row2 <- which(day_summary$mydate==(tech_axa_data$mydate[i]-7))
@@ -67,7 +90,7 @@ for (l in 1:length_ass){
     
     # column for recording the recieved call numbers of last month average
     tech_axa_data$last_month <- NA
-    month_summary <- aggregate(cbind(CSPL_RECEIVED_CALLS,rep(1,length(myyear)))~myyear+mymonth,data=tech_axa_data,FUN = sum)
+    month_summary <- aggregate(cbind(CSPL_RECEIVED_CALLS,rep(1,length(myyear)))~myyear+mymonth,data=tech_axa_data[!(tech_axa_data$mydate %in% dates),],FUN = sum)
     month_summary$CSPL_RECEIVED_CALLS <- month_summary$CSPL_RECEIVED_CALLS/(month_summary$V2/48)
     for (i in 2:36){
         year <- as.integer((i-2)/12)
@@ -79,20 +102,23 @@ for (l in 1:length_ass){
     # output the final data
     tech_axa_data <- tech_axa_data[,c(8,2,3,4,5,6,7,9,10,11,12)]
     write.csv(tech_axa_data,path_finaldata[l],row.names = F)
-    
     # output the first version dataset
     v1 <- tech_axa_data[! is.na(tech_axa_data$samehour_sevendays),]
-    v1 <- v1[,c(1,4,5,6,7,8,9,10)]
+    v1 <- v1[,c(1,2,4,5,6,7,8,9,10)]
     v1$mymonth <- v1$mymonth/12
     v1$myday <- v1$myday/31
     v1$DAY_WE_DS <- v1$DAY_WE_DS/7
     v1$hour_index <- v1$hour_index/48
-    maxs <- apply(v1[,c(6,7,8)],2,max)
-    mins <- apply(v1[,c(6,7,8)],2,min)
+    maxs <- apply(v1[,c(7,8,9)],2,max)
+    mins <- apply(v1[,c(7,8,9)],2,min)
     ranges <- maxs - mins
-    v1[,c(6,7,8)] <- sweep(v1[,c(6,7,8)],2,mins,'-')
-    v1[,c(6,7,8)] <- sweep(v1[,c(6,7,8)],2,ranges,'/')
-    write.csv(v1,path_data_v1[l],row.names = F)
+    normalization_parameters[l,c(2,3,4)]<-maxs
+    normalization_parameters[l,c(5,6,7)]<-mins
+    v1[,c(7,8,9)] <- sweep(v1[,c(7,8,9)],2,mins,'-')
+    v1[,c(7,8,9)] <- sweep(v1[,c(7,8,9)],2,ranges,'/')
+    write.csv(v1[is.na(v1$CSPL_RECEIVED_CALLS),],pred_paths_v1[l],row.names = F)
+    write.csv(v1[!is.na(v1$CSPL_RECEIVED_CALLS),c(1,3:9)],path_data_v1[l],row.names = F)
+    
     # output the second version dataset
     v2<-v1
     v2$mymonth1 <-sin(v2$mymonth*pi)
@@ -103,9 +129,9 @@ for (l in 1:length_ass){
     v2$DAY_WE_DS2 <-cos(v2$DAY_WE_DS*pi)
     v2$hour_index1 <- sin(v2$hour_index*pi)
     v2$hour_index2 <- cos(v2$hour_index*pi)
-    v2<-v2[,c(1,6:16)]
-    
-    write.csv(v2,path_data_v2[l],row.names = F)
+    v2<-v2[,c(1:2,6:17)]
+    write.csv(v2[is.na(v2$CSPL_RECEIVED_CALLS),],pred_paths_v2[l],row.names = F)
+    write.csv(v2[!is.na(v2$CSPL_RECEIVED_CALLS),c(1,4:14)],path_data_v2[l],row.names = F)
     
     # output the third version dataset
     v3<-v1
@@ -121,8 +147,8 @@ for (l in 1:length_ass){
     v3$hour_index2<-v3$hour_index^2
     v3$hour_index3<-v3$hour_index^3
     v3$hour_index4<-v3$hour_index^4
-    
-    write.csv(v3,path_data_v3[l],row.names = F)
+    write.csv(v3[is.na(v3$CSPL_RECEIVED_CALLS),],pred_paths_v3[l],row.names = F)
+    write.csv(v3[!is.na(v3$CSPL_RECEIVED_CALLS),c(1,3:21)],path_data_v3[l],row.names = F)
     rm(day_summary)
     rm(month_summary)
     rm(tech_axa_data)
@@ -130,3 +156,5 @@ for (l in 1:length_ass){
     rm(v2)
     rm(v3)
 }
+
+write.csv(normalization_parameters,'/Users/ding_wensi/Documents/AXA-Challenge/normalization_parameters.csv',row.names=F)

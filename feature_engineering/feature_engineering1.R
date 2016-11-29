@@ -26,8 +26,6 @@ all_dates <- seq(from = data_dates[1], to = data_dates[length(data_dates)], by =
 
 rm(data_dates)
 
-all_dates <- all_dates[!all_dates %in% dates]
-
 all_hour_index <- seq(1,48)
 
 all_assignment <- levels(data$ASS_ASSIGNMENT)
